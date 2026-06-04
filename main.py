@@ -95,11 +95,7 @@ def detect_scenes(video_file, threshold=30.0):
     scene_manager.detect_scenes(video)
     return scene_manager.get_scene_list()
 
-def split_by_scenes(video_file, output_folder, scene_list):
-    os.makedirs(output_folder, exist_ok=True)
-    for idx, (start, end) in enumerate(scene_list):
-        output_path = os.path.join(output_folder, f"scene_{idx:03d}.mp4")
-        cmd = [def split_by_scenes(video_file, output_folder, scene_list, min_length=10, delete_original=True):
+def split_by_scenes(video_file, output_folder, scene_list, min_length=10, delete_original=True):
     os.makedirs(output_folder, exist_ok=True)
     for idx, (start, end) in enumerate(scene_list):
         duration = end.get_seconds() - start.get_seconds()
@@ -119,7 +115,6 @@ def split_by_scenes(video_file, output_folder, scene_list):
         subprocess.run(cmd, check=True)
         print(f"✅ Saved {output_path}")
 
-    # Optionally delete the original video after splitting
     if delete_original:
         try:
             os.remove(video_file)
@@ -127,15 +122,6 @@ def split_by_scenes(video_file, output_folder, scene_list):
         except Exception as e:
             print(f"⚠️ Could not delete {video_file}: {e}")
 
-            "ffmpeg", "-y",
-            "-ss", str(start.get_seconds()), "-to", str(end.get_seconds()),
-            "-i", video_file,
-            "-vf", "crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-c:a", "aac", "-b:a", "128k", output_path
-        ]
-        subprocess.run(cmd, check=True)
-        print(f"✅ Saved {output_path}")
 
 # ============================================================
 # AUDIO INTENSITY
