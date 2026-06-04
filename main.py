@@ -19,7 +19,7 @@ whisper_model = whisper.load_model("base", device="cuda")  # GPU in Colab
 sentiment_model = pipeline("sentiment-analysis",
                            model="distilbert-base-uncased-finetuned-sst-2-english",
                            device=0)
-summarizer = pipeline("summarization",
+summarizer = pipeline("text2text-generation",   # <-- updated
                       model="facebook/bart-large-cnn",
                       device=0)
 classifier = pipeline("zero-shot-classification",
@@ -34,17 +34,33 @@ KEYWORDS = ["AI", "security", "funny", "important", "education", "technology"]
 
 def download_video(video_url, output_folder):
     os.makedirs(output_folder, exist_ok=True)
+
+    # Flexible format string: prefer H.264 + AAC, fallback to MP4/M4A, else best
     ydl_opts = {
-        "format": "bestvideo+bestaudio/best",
+        "format": (
+            "bestvideo[codec^=avc]+bestaudio[ext=m4a]/"
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+            "best"
+        ),
         "merge_output_format": "mp4",
         "outtmpl": os.path.join(output_folder, "%(title)s-%(id)s.%(ext)s")
     }
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(video_url, download=True)
         filename = ydl.prepare_filename(info)
         if not filename.endswith(".mp4"):
             filename = os.path.splitext(filename)[0] + ".mp4"
-    return filename, info.get("duration", 0)
+
+    # 🔊 Always re-encode to H.264 + AAC to guarantee audio
+    fixed_filename = os.path.splitext(filename)[0] + "_fixed.mp4"
+    subprocess.run([
+        "ffmpeg", "-y", "-i", filename,
+        "-c:v", "libx264", "-c:a", "aac", "-b:a", "128k",
+        fixed_filename
+    ], check=True)
+
+    return fixed_filename, info.get("duration", 0)
 
 # ============================================================
 # SPLIT VIDEO BY TIME
@@ -150,7 +166,7 @@ def filter_emotional_clips(clips_folder, final_folder, metadata_file="metadata.j
         intensity = calculate_audio_intensity(clip_path)
         highlight_score = score + len(transcript.split()) / 50 + intensity / 100
 
-        summary = summarizer(transcript, max_length=40, min_length=10, do_sample=False)[0]["summary_text"]
+        summary = summarizer(transcript, max_length=40, min_length=10, do_sample=False)[0]["generated_text"]
         keyword_hits = [kw for kw in KEYWORDS if kw.lower() in transcript.lower()]
         topics = classifier(transcript, candidate_labels=["technology", "comedy", "politics", "personal story", "education"])
         top_topic = topics["labels"][0]
@@ -194,29 +210,4 @@ def main():
     base_folder = os.path.join("/content", folder_name)  # Colab path
     os.makedirs(base_folder, exist_ok=True)
 
-    video_file, duration = download_video(video_url, base_folder)
-    clips_folder = os.path.join(base_folder, "clips")
-
-    if mode == "time":
-        segment_time = int(input("Segment Length (sec): "))
-        print(f"\nVideo Duration: {duration} sec")
-        print(f"Approx Clips: {duration // segment_time}")
-        split_video(video_file, clips_folder, segment_time)
-    elif mode == "scene":
-        print("\n🔍 Detecting scenes...")
-        scene_list = detect_scenes(video_file)
-        print(f"Found {len(scene_list)} scenes")
-        split_by_scenes(video_file, clips_folder, scene_list)
-    else:
-        print("Invalid mode")
-        return
-
-    final_folder = os.path.join(base_folder, "final")
-    emotional = filter_emotional_clips(clips_folder, final_folder)
-
-    print("\n🏆 TOP HIGHLIGHTS\n")
-    for item in emotional:
-        print(f"{item[0]} | {item[2]} | {item[3]:.2f} | {item[4]:.1f} dB | Score {item[5]:.2f}")
-
-if __name__ == "__main__":
-    main()
+    video_file
