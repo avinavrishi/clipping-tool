@@ -5,7 +5,7 @@ from scenedetect import open_video, SceneManager
 from scenedetect.detectors import ContentDetector
 
 # ============================================================
-# DOWNLOAD VIDEO (with retries and safer formats)
+# DOWNLOAD VIDEO (robust settings)
 # ============================================================
 
 def download_video(video_url, output_folder):
@@ -28,8 +28,7 @@ def download_video(video_url, output_folder):
         if not filename.endswith(".mp4"):
             filename = os.path.splitext(filename)[0] + ".mp4"
 
-    fixed_filename = os.path.splitext(filename)[0] + "_fixed.mp4"
-    fixed_filename = os.path.normpath(fixed_filename)
+    fixed_filename = os.path.normpath(os.path.splitext(filename)[0] + "_fixed.mp4")
 
     subprocess.run([
         "ffmpeg", "-y", "-i", f"file:{filename}",
@@ -46,7 +45,7 @@ def download_video(video_url, output_folder):
 
 def split_video(video_file, output_folder, segment_time):
     os.makedirs(output_folder, exist_ok=True)
-    output_pattern = os.path.join(output_folder, "clip_%03d.mp4")
+    output_pattern = os.path.normpath(os.path.join(output_folder, "clip_%03d.mp4"))
     cmd = [
         "ffmpeg", "-y", "-i", f"file:{os.path.normpath(video_file)}",
         "-vf", "crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
@@ -77,7 +76,7 @@ def split_by_scenes(video_file, output_folder, scene_list, min_length=10, delete
             print(f"⏩ Skipped scene {idx:03d} (too short: {duration:.1f}s)")
             continue
 
-        output_path = os.path.join(output_folder, f"scene_{idx:03d}.mp4")
+        output_path = os.path.normpath(os.path.join(output_folder, f"scene_{idx:03d}.mp4"))
         cmd = [
             "ffmpeg", "-y",
             "-ss", str(start.get_seconds()), "-to", str(end.get_seconds()),
