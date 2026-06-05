@@ -5,20 +5,21 @@ from scenedetect import open_video, SceneManager
 from scenedetect.detectors import ContentDetector
 
 # ============================================================
-# DOWNLOAD VIDEO
+# DOWNLOAD VIDEO (with retries and safer formats)
 # ============================================================
 
 def download_video(video_url, output_folder):
     os.makedirs(output_folder, exist_ok=True)
 
     ydl_opts = {
-        "format": (
-            "bestvideo[codec^=avc]+bestaudio[ext=m4a]/"
-            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
-            "best"
-        ),
+        "format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
         "merge_output_format": "mp4",
-        "outtmpl": os.path.join(output_folder, "%(title)s-%(id)s.%(ext)s")
+        "outtmpl": os.path.join(output_folder, "%(title)s-%(id)s.%(ext)s"),
+        "socket_timeout": 60,
+        "retries": 10,
+        "continuedl": True,
+        "fragment_retries": 10,
+        "http_headers": {"User-Agent": "Mozilla/5.0"}
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -30,7 +31,6 @@ def download_video(video_url, output_folder):
     fixed_filename = os.path.splitext(filename)[0] + "_fixed.mp4"
     fixed_filename = os.path.normpath(fixed_filename)
 
-    # Use file: prefix to avoid "Protocol not found" error
     subprocess.run([
         "ffmpeg", "-y", "-i", f"file:{filename}",
         "-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "2M",
