@@ -3,6 +3,13 @@ import subprocess
 import yt_dlp
 from scenedetect import open_video, SceneManager
 from scenedetect.detectors import ContentDetector
+from google.colab import drive
+
+# ============================================================
+# MOUNT GOOGLE DRIVE
+# ============================================================
+
+drive.mount('/content/drive')
 
 # ============================================================
 # DOWNLOAD VIDEO (robust settings)
@@ -19,25 +26,37 @@ def download_video(video_url, output_folder):
         "retries": 10,
         "continuedl": True,
         "fragment_retries": 10,
-        "http_headers": {"User-Agent": "Mozilla/5.0"}
+        "http_headers": {"User-Agent": "Mozilla/5.0"},
+        "cookies": "cookies.txt"  # upload cookies.txt to Colab
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(video_url, download=True)
-        filename = os.path.normpath(ydl.prepare_filename(info))
-        if not filename.endswith(".mp4"):
-            filename = os.path.splitext(filename)[0] + ".mp4"
+    info = None
+    filename = None
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=True)
+            filename = ydl.prepare_filename(info)
+    except Exception as e:
+        raise RuntimeError(f"Download failed: {e}")
+
+    if not filename:
+        raise RuntimeError("No filename returned by yt-dlp")
+
+    filename = os.path.normpath(filename)
+    if not filename.endswith(".mp4"):
+        filename = os.path.splitext(filename)[0] + ".mp4"
 
     fixed_filename = os.path.normpath(os.path.splitext(filename)[0] + "_fixed.mp4")
 
+    # ✅ GPU encoding with h264_nvenc
     subprocess.run([
-        "ffmpeg", "-y", "-i", f"file:{filename}",
+        "ffmpeg", "-y", "-i", filename,
         "-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "2M",
         "-c:a", "aac", "-b:a", "128k",
         fixed_filename
     ], check=True)
 
-    return fixed_filename, info.get("duration", 0)
+    return fixed_filename, info.get("duration", 0) if info else 0
 
 # ============================================================
 # SPLIT VIDEO BY TIME    
@@ -47,7 +66,7 @@ def split_video(video_file, output_folder, segment_time):
     os.makedirs(output_folder, exist_ok=True)
     output_pattern = os.path.normpath(os.path.join(output_folder, "clip_%03d.mp4"))
     cmd = [
-        "ffmpeg", "-y", "-i", f"file:{os.path.normpath(video_file)}",
+        "ffmpeg", "-y", "-i", video_file,
         "-vf", "crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
         "-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "2M",
         "-c:a", "aac", "-b:a", "128k",
@@ -80,7 +99,7 @@ def split_by_scenes(video_file, output_folder, scene_list, min_length=10, delete
         cmd = [
             "ffmpeg", "-y",
             "-ss", str(start.get_seconds()), "-to", str(end.get_seconds()),
-            "-i", f"file:{os.path.normpath(video_file)}",
+            "-i", video_file,
             "-vf", "crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
             "-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "2M",
             "-c:a", "aac", "-b:a", "128k", output_path
@@ -108,7 +127,8 @@ def main():
     print("2. Split by scene detection")
     choice = input("Enter 1 or 2: ").strip()
 
-    base_folder = os.path.normpath(os.path.join("D:\\youtube_clips", folder_name))  # Windows path
+    # ✅ Store clips in Google Drive → Youtube clip folder
+    base_folder = os.path.normpath(os.path.join("/content/drive/MyDrive/Youtube clip", folder_name))
     os.makedirs(base_folder, exist_ok=True)
 
     video_file, duration = download_video(video_url, base_folder)
@@ -130,7 +150,7 @@ def main():
         print("Invalid choice")
         return
 
-    print(f"\n✅ All clips saved in: {clips_folder}")
+    print(f"\n✅ All clips saved in Google Drive: {clips_folder}")
 
 if __name__ == "__main__":
     main()
