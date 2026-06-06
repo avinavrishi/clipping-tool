@@ -9,10 +9,10 @@ from google.colab import drive
 # MOUNT GOOGLE DRIVE
 # ============================================================
 
-drive.mount('/content/drive')
+# drive.mount('/content/drive')
 
 # ============================================================
-# DOWNLOAD VIDEO (robust settings)
+# DOWNLOAD VIDEO (robust settings, GPU encoding)
 # ============================================================
 
 def download_video(video_url, output_folder):
@@ -27,7 +27,7 @@ def download_video(video_url, output_folder):
         "continuedl": True,
         "fragment_retries": 10,
         "http_headers": {"User-Agent": "Mozilla/5.0"},
-        "cookies": "cookies.txt"  # upload cookies.txt to Colab
+        "cookies": "cookies.txt"
     }
 
     info = None
@@ -48,9 +48,11 @@ def download_video(video_url, output_folder):
 
     fixed_filename = os.path.normpath(os.path.splitext(filename)[0] + "_fixed.mp4")
 
-    # ✅ GPU encoding with h264_nvenc
+    # ✅ GPU decoding + encoding
     subprocess.run([
-        "ffmpeg", "-y", "-i", filename,
+        "ffmpeg", "-y",
+        "-hwaccel", "cuda", "-hwaccel_output_format", "cuda",
+        "-i", filename,
         "-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "2M",
         "-c:a", "aac", "-b:a", "128k",
         fixed_filename
@@ -59,15 +61,17 @@ def download_video(video_url, output_folder):
     return fixed_filename, info.get("duration", 0) if info else 0
 
 # ============================================================
-# SPLIT VIDEO BY TIME    
+# SPLIT VIDEO BY TIME (GPU)
 # ============================================================
 
 def split_video(video_file, output_folder, segment_time):
     os.makedirs(output_folder, exist_ok=True)
     output_pattern = os.path.normpath(os.path.join(output_folder, "clip_%03d.mp4"))
     cmd = [
-        "ffmpeg", "-y", "-i", video_file,
-        "-vf", "crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
+        "ffmpeg", "-y",
+        "-hwaccel", "cuda", "-hwaccel_output_format", "cuda",
+        "-i", video_file,
+        "-vf", "scale_cuda=1280:720,crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
         "-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "2M",
         "-c:a", "aac", "-b:a", "128k",
         "-f", "segment", "-segment_time", str(segment_time),
@@ -98,9 +102,10 @@ def split_by_scenes(video_file, output_folder, scene_list, min_length=10, delete
         output_path = os.path.normpath(os.path.join(output_folder, f"scene_{idx:03d}.mp4"))
         cmd = [
             "ffmpeg", "-y",
+            "-hwaccel", "cuda", "-hwaccel_output_format", "cuda",
             "-ss", str(start.get_seconds()), "-to", str(end.get_seconds()),
             "-i", video_file,
-            "-vf", "crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
+            "-vf", "scale_cuda=1280:720,crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
             "-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "2M",
             "-c:a", "aac", "-b:a", "128k", output_path
         ]
@@ -127,8 +132,7 @@ def main():
     print("2. Split by scene detection")
     choice = input("Enter 1 or 2: ").strip()
 
-    # ✅ Store clips in Google Drive → Youtube clip folder
-    base_folder = os.path.normpath(os.path.join("/content/drive/MyDrive/Youtube clip", folder_name))
+    base_folder = os.path.normpath(os.path.join("/content/Youtube clip", folder_name))
     os.makedirs(base_folder, exist_ok=True)
 
     video_file, duration = download_video(video_url, base_folder)
