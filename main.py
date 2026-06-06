@@ -23,9 +23,11 @@ sentiment_model = pipeline("sentiment-analysis",
                            model="distilbert-base-uncased-finetuned-sst-2-english",
                            device=device_id)
 
-summarizer = pipeline("text2text-generation",   # updated task
-                      model="facebook/bart-large-cnn",
-                      device=device_id)
+summarizer = pipeline(
+    "summarization",
+    model="facebook/bart-large-cnn",
+    device=device_id
+)
 
 classifier = pipeline("zero-shot-classification",
                       model="facebook/bart-large-mnli",
@@ -183,7 +185,7 @@ def filter_emotional_clips(clips_folder, final_folder, metadata_file="metadata.j
         intensity = calculate_audio_intensity(clip_path)
         highlight_score = score + len(transcript.split()) / 50 + intensity / 100
 
-        summary = summarizer(transcript, max_length=40, min_length=10, do_sample=False)[0]["generated_text"]
+        summary = summarizer(transcript, max_length=40, min_length=10, do_sample=False)[0]["summary_text"]
         keyword_hits = [kw for kw in KEYWORDS if kw.lower() in transcript.lower()]
         topics = classifier(transcript, candidate_labels=["technology", "comedy", "politics", "personal story", "education"])
         top_topic = topics["labels"][0]
