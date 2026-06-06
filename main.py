@@ -18,8 +18,9 @@ from google.colab import drive
 def download_video(video_url, output_folder):
     os.makedirs(output_folder, exist_ok=True)
 
+    # ✅ Prefer H.264 (avoid AV1)
     ydl_opts = {
-        "format": "bestvideo[height<=720]+bestaudio/best[height<=720]",
+        "format": "bestvideo[codec^=avc][height<=720]+bestaudio/best[height<=720]",
         "merge_output_format": "mp4",
         "outtmpl": os.path.join(output_folder, "%(title)s-%(id)s.%(ext)s"),
         "socket_timeout": 60,
@@ -49,20 +50,20 @@ def download_video(video_url, output_folder):
 
     fixed_filename = os.path.normpath(os.path.splitext(filename)[0] + "_fixed.mp4")
 
-    # ✅ GPU decoding + encoding
-    subprocess.run([
+    # ✅ Encode with NVENC (decode on CPU if AV1)
+    cmd = [
         "ffmpeg", "-y",
-        "-hwaccel", "cuda", "-hwaccel_output_format", "cuda",
         "-i", filename,
         "-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "2M",
         "-c:a", "aac", "-b:a", "128k",
         fixed_filename
-    ], check=True)
+    ]
+    subprocess.run(cmd, check=True)
 
     return fixed_filename, info.get("duration", 0) if info else 0
 
 # ============================================================
-# SPLIT VIDEO BY TIME (GPU)
+# SPLIT VIDEO BY TIME (GPU encoding)
 # ============================================================
 
 def split_video(video_file, output_folder, segment_time):
@@ -70,9 +71,8 @@ def split_video(video_file, output_folder, segment_time):
     output_pattern = os.path.normpath(os.path.join(output_folder, "clip_%03d.mp4"))
     cmd = [
         "ffmpeg", "-y",
-        "-hwaccel", "cuda", "-hwaccel_output_format", "cuda",
         "-i", video_file,
-        "-vf", "scale_cuda=1280:720,crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
+        "-vf", "crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
         "-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "2M",
         "-c:a", "aac", "-b:a", "128k",
         "-f", "segment", "-segment_time", str(segment_time),
@@ -103,10 +103,9 @@ def split_by_scenes(video_file, output_folder, scene_list, min_length=10, delete
         output_path = os.path.normpath(os.path.join(output_folder, f"scene_{idx:03d}.mp4"))
         cmd = [
             "ffmpeg", "-y",
-            "-hwaccel", "cuda", "-hwaccel_output_format", "cuda",
             "-ss", str(start.get_seconds()), "-to", str(end.get_seconds()),
             "-i", video_file,
-            "-vf", "scale_cuda=1280:720,crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
+            "-vf", "crop=ih*9/16:ih:(iw-ih*9/16)/2:0",
             "-c:v", "h264_nvenc", "-preset", "fast", "-b:v", "2M",
             "-c:a", "aac", "-b:a", "128k", output_path
         ]
