@@ -27,7 +27,8 @@ def download_video(video_url, output_folder):
         "continuedl": True,
         "fragment_retries": 10,
         "http_headers": {"User-Agent": "Mozilla/5.0"},
-        "cookies": "cookies.txt"
+        "cookies": "/content/cookies.txt",
+        "js_runtime": "node"
     }
 
     info = None
