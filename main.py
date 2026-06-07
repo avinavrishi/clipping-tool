@@ -1,48 +1,11 @@
 import os
-import json
-import textwrap
 import subprocess
 
-import whisper
 import yt_dlp
-
-from transformers import pipeline
 
 from scenedetect import open_video
 from scenedetect import SceneManager
 from scenedetect.detectors import ContentDetector
-
-# ============================================================
-# LOAD MODELS
-# ============================================================
-
-print("Loading models...")
-
-whisper_model = whisper.load_model(
-    "base",
-    device="cpu"
-)
-
-sentiment_model = pipeline(
-    "sentiment-analysis",
-    model="distilbert-base-uncased-finetuned-sst-2-english",
-    device=-1
-)
-
-classifier = pipeline(
-    "zero-shot-classification",
-    model="facebook/bart-large-mnli",
-    device=-1
-)
-
-KEYWORDS = [
-    "AI",
-    "security",
-    "funny",
-    "important",
-    "education",
-    "technology"
-]
 
 # ============================================================
 # DOWNLOAD VIDEO
@@ -53,7 +16,9 @@ def download_video(video_url, output_folder):
     os.makedirs(output_folder, exist_ok=True)
 
     ydl_opts = {
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
+        "format": (
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best"
+        ),
         "merge_output_format": "mp4",
         "outtmpl": os.path.join(
             output_folder,
@@ -62,6 +27,7 @@ def download_video(video_url, output_folder):
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+
         info = ydl.extract_info(
             video_url,
             download=True
@@ -72,104 +38,106 @@ def download_video(video_url, output_folder):
         if not filename.endswith(".mp4"):
             filename = os.path.splitext(filename)[0] + ".mp4"
 
-    return filename, info.get("duration", 0)
+    return filename
+
 
 # ============================================================
-# TRANSCRIBE
+# SCENE DETECTION
 # ============================================================
 
-def transcribe_clip(video_path):
+def detect_scenes(video_file, threshold=30):
 
-    result = whisper_model.transcribe(
-        video_path,
-        fp16=False
+    print("\nDetecting scenes...")
+
+    video = open_video(video_file)
+
+    scene_manager = SceneManager()
+
+    scene_manager.add_detector(
+        ContentDetector(threshold=threshold)
     )
 
-    return result["text"].strip()
+    scene_manager.detect_scenes(video)
+
+    scenes = scene_manager.get_scene_list()
+
+    print(f"Found {len(scenes)} scenes")
+
+    return scenes
+
 
 # ============================================================
-# AUDIO LEVEL
+# SPLIT SCENES
 # ============================================================
 
-def calculate_audio_intensity(video_path):
+def split_by_scenes(
+        video_file,
+        output_folder,
+        scenes,
+        min_duration=5):
 
-    cmd = [
-        "ffmpeg",
-        "-i", video_path,
-        "-af", "volumedetect",
-        "-f", "null",
-        "-"
-    ]
-
-    result = subprocess.run(
-        cmd,
-        stderr=subprocess.PIPE,
-        text=True
+    clips_folder = os.path.join(
+        output_folder,
+        "clips"
     )
 
-    for line in result.stderr.splitlines():
+    os.makedirs(
+        clips_folder,
+        exist_ok=True
+    )
 
-        if "mean_volume" in line:
+    clip_count = 0
 
-            try:
-                return float(
-                    line.split(":")[1]
-                    .replace("dB", "")
-                    .strip()
-                )
-            except:
-                pass
+    for idx, (start, end) in enumerate(scenes):
 
-    return -30.0
+        start_sec = start.get_seconds()
+        end_sec = end.get_seconds()
 
-# ============================================================
-# ANALYZE VIDEO
-# ============================================================
+        duration = end_sec - start_sec
 
-def analyze_video(video_path):
+        if duration < min_duration:
+            continue
 
-    print("\nTranscribing...")
+        output_path = os.path.join(
+            clips_folder,
+            f"scene_{clip_count:03d}.mp4"
+        )
 
-    transcript = transcribe_clip(video_path)
+        cmd = [
+            "ffmpeg",
+            "-y",
 
-    print("\nTranscript:")
-    print(transcript[:500])
+            "-ss", str(start_sec),
+            "-to", str(end_sec),
 
-    sentiment = sentiment_model(
-        transcript
-    )[0]
+            "-i", video_file,
 
-    topic = classifier(
-        transcript,
-        candidate_labels=[
-            "technology",
-            "education",
-            "comedy",
-            "politics",
-            "personal story"
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+
+            "-c:a", "aac",
+            "-b:a", "128k",
+
+            output_path
         ]
+
+        subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        clip_count += 1
+
+        print(
+            f"Saved: scene_{clip_count:03d}.mp4"
+        )
+
+    print(
+        f"\nFinished. Created {clip_count} clips."
     )
 
-    intensity = calculate_audio_intensity(
-        video_path
-    )
-
-    words = transcript.split()
-
-    if len(words) > 30:
-        summary = " ".join(words[:30]) + "..."
-    else:
-        summary = transcript
-
-    result = {
-        "summary": summary,
-        "sentiment": sentiment["label"],
-        "sentiment_score": sentiment["score"],
-        "topic": topic["labels"][0],
-        "audio_intensity": intensity
-    }
-
-    return result
 
 # ============================================================
 # MAIN
@@ -177,7 +145,7 @@ def analyze_video(video_path):
 
 def main():
 
-    print("\n===== VIDEO CLIPPING TOOL =====\n")
+    print("\n===== VIDEO SCENE SPLITTER =====\n")
 
     video_url = input(
         "Enter YouTube URL: "
@@ -187,9 +155,8 @@ def main():
         "Project Name: "
     ).strip()
 
-    # Fixed download location
     base_folder = os.path.join(
-        "D:\\Downloads\\ClipData",
+        r"D:\Downloads\ClipData",
         project_name
     )
 
@@ -198,57 +165,31 @@ def main():
         exist_ok=True
     )
 
-    print(f"\nOutput Folder: {base_folder}")
+    print(
+        f"\nSaving to:\n{base_folder}"
+    )
 
     print("\nDownloading video...")
 
-    video_file, duration = download_video(
+    video_file = download_video(
         video_url,
         base_folder
     )
 
-    print(
-        f"\nDownloaded. Duration: {duration} seconds"
-    )
+    print("\nDownload complete.")
 
-    result = analyze_video(
+    scenes = detect_scenes(
         video_file
     )
 
-    print("\n===== RESULTS =====\n")
-
-    print(
-        json.dumps(
-            result,
-            indent=2
-        )
-    )
-
-    metadata_file = os.path.join(
+    split_by_scenes(
+        video_file,
         base_folder,
-        "metadata.json"
+        scenes
     )
 
-    with open(
-        metadata_file,
-        "w",
-        encoding="utf-8"
-    ) as f:
+    print("\nDone!")
 
-        json.dump(
-            result,
-            f,
-            indent=2,
-            ensure_ascii=False
-        )
-
-    print(
-        f"\nMetadata saved:\n{metadata_file}"
-    )
-
-    print(
-        f"\nVideo saved in:\n{base_folder}"
-    )
 
 if __name__ == "__main__":
     main()
